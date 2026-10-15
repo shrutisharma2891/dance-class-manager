@@ -27,3 +27,8 @@ ranking. Customer identifiers are matched exactly after trimming whitespace.
 Missing class/customer identifiers are excluded from their respective charts;
 invalid revenue contributes zero with a warning. Refund amounts can be negative.
 All input rows are included: filter out cancellations beforehand if needed.
+
+## React + TypeScript version
+
+A separate version is available in [react-app](react-app/README.md). From that
+folder, run `npm ci` and `npm run dev` with Node.js 22.12+ (24 LTS recommended).
