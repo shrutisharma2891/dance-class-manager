@@ -1,17 +1,43 @@
 import Papa from 'papaparse';
 export type Row = Record<string, string>;
-export type Dataset = { columns: string[]; rows: Row[] };
+export type Dataset = { columns: string[]; rows: Row[]; classColumn?: string; classSheets?: string[]; skippedSheets?: string[] };
 export type Mapping = { className: string; customer: string; revenue: string; count: string };
 export type Ranking = { name: string; value: number };
 
-export function fromGrid(grid: unknown[][]): Dataset {
+export function fromGrid(grid: unknown[][], minimumColumns = 3): Dataset {
   const populated = grid.filter(row => row.some(cell => String(cell ?? '').trim() !== ''));
   const columns = (populated[0] ?? []).map(cell => String(cell ?? '').trim());
-  if (columns.length < 3 || columns.some(c => !c) || new Set(columns).size !== columns.length)
-    throw new Error('Use at least three unique, nonempty column headers in the first row.');
+  if (columns.length < minimumColumns || columns.some(c => !c) || new Set(columns).size !== columns.length)
+    throw new Error(`Use at least ${minimumColumns} unique, nonempty column headers in the first row.`);
   const rows = populated.slice(1).map(cells => Object.fromEntries(columns.map((c, i) => [c, String(cells[i] ?? '')])));
   if (!rows.length) throw new Error('The spreadsheet has no data rows.');
   return { columns, rows };
+}
+
+export function fromClassSheets(sheets: { name: string; grid: unknown[][] }[]): Dataset {
+  const skippedSheets: string[] = [];
+  const parsed: { name: string; data: Dataset }[] = [];
+  for (const sheet of sheets) {
+    const populated = sheet.grid.filter(row => row.some(cell => String(cell ?? '').trim() !== ''));
+    if (populated.length <= 1) { skippedSheets.push(sheet.name); continue; }
+    try { parsed.push({ name: sheet.name, data: fromGrid(populated, 2) }); }
+    catch (error) { throw new Error(`Worksheet “${sheet.name}”: ${error instanceof Error ? error.message : 'Invalid data.'}`); }
+  }
+  if (!parsed.length) throw new Error('No class sheets contain booking rows. Add customer and revenue columns with at least one booking.');
+  const headers = parsed[0].data.columns;
+  for (const sheet of parsed) {
+    if (sheet.data.columns.length !== headers.length || headers.some(header => !sheet.data.columns.includes(header)))
+      throw new Error(`Worksheet “${sheet.name}” has different column headers. Use the same customer, revenue, and optional booking-count headers on every class sheet. Column order may differ.`);
+  }
+  let classColumn = 'Class (worksheet)';
+  while (headers.includes(classColumn)) classColumn += ' ·';
+  return {
+    columns: [classColumn, ...headers],
+    rows: parsed.flatMap(sheet => sheet.data.rows.map(row => ({ ...row, [classColumn]: sheet.name }))),
+    classColumn,
+    classSheets: parsed.map(sheet => sheet.name),
+    skippedSheets,
+  };
 }
 export function parseCsv(text: string): Dataset {
   const result = Papa.parse<string[]>(text, { skipEmptyLines: 'greedy' });

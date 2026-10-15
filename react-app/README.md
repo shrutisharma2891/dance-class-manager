@@ -22,13 +22,19 @@ Press Ctrl+C to stop. These commands work in Windows, macOS, and Linux terminals
 
 - Demo data loads automatically.
 - Upload CSV or XLSX (up to 20 MB), or paste a Google Sheets link.
-- For Excel, select the worksheet. The first nonempty row must contain unique headers.
-- Select class, customer (preferably email), revenue, and optionally registration count columns.
+- For Excel, every worksheet represents a class. The worksheet name becomes the class
+  name, and all worksheets are combined automatically. No class column is required.
+  Use identical headers across sheets (column order may differ). The first nonempty
+  row must contain unique headers. Blank/header-only sheets are skipped with a notice.
+  Keep summaries or unrelated data in a separate workbook.
+- Select customer (preferably email), revenue, and optionally registration count columns.
+  For CSV or a single Google Sheets tab, also select the class column.
 - Explore class registration/revenue charts and the top 10 customers. Each chart
   includes a ranking table and CSV export. The source preview shows the first 20 rows.
 
 Google Sheets must be publicly viewable via “Anyone with the link can view”. The
-link's `gid` selects the tab. Browser cross-origin restrictions or Google permissions
+link's `gid` selects one tab. To combine classes across Google Sheets tabs, download
+the spreadsheet as Microsoft Excel (.xlsx) and upload it. Browser cross-origin restrictions or Google permissions
 may prevent a direct import; use a CSV/XLSX export in that case. Private customer
 spreadsheets should be uploaded, rather than made public. Google Sheets is fetched
 from Google; uploaded files are not sent to an application server. No Google OAuth
@@ -53,3 +59,17 @@ npm run preview
 ```
 
 The production build is generated in `dist/` and can be hosted as a static site.
+
+## Example Excel layout
+
+Create worksheets named **Salsa**, **Ballet**, and **Hip Hop**. Each sheet uses:
+
+| Customer | Revenue | Count |
+| --- | ---: | ---: |
+| alex@example.com | 50 | 2 |
+| sam@example.com | 25 | 1 |
+
+`Count` is optional; without it, each row counts as one registration. Select it
+in Registration counting if present. A customer appearing in multiple class
+sheets is combined in the top-10 ranking. Existing Class columns are ignored for
+class grouping in Excel; worksheet names determine the class.

@@ -1,8 +1,9 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { defaultMapping, demo, fromGrid, googleUrl, parseCsv, rankingCsv, summarize } from './data';
+import { defaultMapping, demo, googleUrl, parseCsv, rankingCsv, summarize } from './data';
 import type { Dataset, Mapping, Ranking } from './data';
+import { readClassWorkbook } from './workbook';
 import './styles.css';
 
 function Chart({ title, subtitle, rows, color, metric }: { title: string; subtitle: string; rows: Ranking[]; color: string; metric: string }) {
@@ -18,9 +19,12 @@ function Chart({ title, subtitle, rows, color, metric }: { title: string; subtit
 function App() {
   const [data, setData] = useState<Dataset>(demo), [mapping, setMapping] = useState<Mapping>(defaultMapping(demo.columns));
   const [source, setSource] = useState('Demo dataset'), [link, setLink] = useState(''), [error, setError] = useState(''), [busy, setBusy] = useState(false);
-  const [sheets, setSheets] = useState<{ name: string; grid: unknown[][] }[]>([]), [sheetName, setSheetName] = useState('');
   const request = useRef(0);
-  function load(next: Dataset, label: string) { setData(next); setMapping(defaultMapping(next.columns)); setSource(label); setError(''); }
+  function load(next: Dataset, label: string) {
+    const mapping = defaultMapping(next.columns);
+    if (next.classColumn) mapping.className = next.classColumn;
+    setData(next); setMapping(mapping); setSource(label); setError('');
+  }
   async function upload(file?: File) {
     if (!file) return;
     const id = ++request.current; setBusy(true); setError('');
@@ -29,22 +33,11 @@ function App() {
       if (file.name.toLowerCase().endsWith('.csv')) {
         const next = parseCsv(await file.text());
         if (id !== request.current) return;
-        load(next, file.name); setSheets([]);
+        load(next, file.name);
       } else if (file.name.toLowerCase().endsWith('.xlsx')) {
-        const { Workbook } = await import('exceljs');
-        const book = new Workbook(); await book.xlsx.load(await file.arrayBuffer());
-        const tabs = book.worksheets.map(sheet => {
-          const grid: unknown[][] = [];
-          sheet.eachRow({ includeEmpty: true }, row => {
-            const cells: string[] = [];
-            for (let i = 1; i <= sheet.columnCount; i++) cells.push(row.getCell(i).text);
-            grid.push(cells);
-          });
-          return { name: sheet.name, grid };
-        });
+        const next = await readClassWorkbook(await file.arrayBuffer());
         if (id !== request.current) return;
-        if (!tabs.length) throw new Error('No worksheets found.');
-        setSheets(tabs); setSheetName(tabs[0].name); load(fromGrid(tabs[0].grid), file.name);
+        load(next, file.name);
       } else throw new Error('Choose a CSV or XLSX file.');
     } catch (e) { if (id === request.current) setError(e instanceof Error ? e.message : 'Could not read file.'); }
     finally { if (id === request.current) setBusy(false); }
@@ -58,7 +51,7 @@ function App() {
       if (/^\s*(<!doctype|<html)/i.test(text)) throw new Error('This sheet requires sign-in. Upload a CSV or XLSX export instead.');
       const next = parseCsv(text);
       if (id !== request.current) return;
-      load(next, 'Google Sheets'); setSheets([]);
+      load(next, 'Google Sheets');
     } catch (e) { if (id === request.current) setError(`${e instanceof Error ? e.message : 'Import failed.'} If browser access is blocked, download the sheet and upload it here.`); }
     finally { if (id === request.current) setBusy(false); }
   }
@@ -68,12 +61,13 @@ function App() {
     <div className="intro"><div className="eyebrow">YOUR STUDIO, AT A GLANCE</div><h1>Every booking tells a story.</h1><p>Discover the classes your customers love — and what drives your revenue.</p></div>
     <section className="card"><h2>Connect your spreadsheet</h2><p>Upload a private export or connect a publicly viewable Google Sheet. Your files are processed in this browser.</p>
       <div className="inputs"><label className="upload">↑ Upload CSV or Excel<input type="file" accept=".csv,.xlsx" disabled={busy} onChange={e => { void upload(e.target.files?.[0]); e.target.value = ''; }}/></label><span className="or">or</span><form onSubmit={loadGoogle}><label className="sr-only" htmlFor="sheet-link">Google Sheets link</label><input id="sheet-link" type="url" required placeholder="Paste your Google Sheets link…" value={link} onChange={e => setLink(e.target.value)}/><button disabled={busy}>{busy ? 'Loading…' : 'Connect sheet'}</button></form></div>
-      <div className="source"><span>Current source: <strong>{source}</strong> · {data.rows.length} rows</span><button className="text-button" disabled={busy} onClick={() => { request.current++; load(demo, 'Demo dataset'); setSheets([]); }}>Try demo data</button></div>
-      <p className="hint">Google links need “Anyone with the link can view”. Keep customer data private by uploading an export instead. The link’s gid selects the tab.</p>
-      {sheets.length > 0 && <label>Excel worksheet<select value={sheetName} onChange={e => { setSheetName(e.target.value); try { load(fromGrid(sheets.find(s => s.name === e.target.value)!.grid), source); } catch (e) { setError(e instanceof Error ? e.message : 'Invalid worksheet'); } }}>{sheets.map(s => <option key={s.name}>{s.name}</option>)}</select></label>}
+      <div className="source"><span>Current source: <strong>{source}</strong> · {data.rows.length} rows</span><button className="text-button" disabled={busy} onClick={() => { request.current++; load(demo, 'Demo dataset'); }}>Try demo data</button></div>
+      <p className="hint">Excel: use one worksheet per class, named after the class, with matching customer and revenue headers on every sheet. All class sheets are combined automatically. Google links import only the selected tab; download as Excel to import all tabs.</p>
+      <p className="hint">Google links need “Anyone with the link can view”. Keep customer data private by uploading an export instead.</p>
+      {data.classSheets && <p role="status" className="hint">Imported {data.classSheets.length} class sheets: {data.classSheets.join(', ')}. Class names come from worksheet names.{!!data.skippedSheets?.length && ` Skipped empty or header-only sheets: ${data.skippedSheets.join(', ')}.`}</p>}
       {error && <p role="alert" className="alert">{error} The previous dataset remains displayed.</p>}
     </section>
-    <section className="card"><h2>Match your columns</h2><div className="mapping">{([['className', 'Class name'], ['customer', 'Customer name or email'], ['revenue', 'Revenue received per row'], ['count', 'Registration counting']] as const).map(([key, label]) => <label key={key}>{label}<select value={mapping[key]} onChange={e => setMapping({ ...mapping, [key]: e.target.value })}>{key === 'count' && <option value="">One registration per row</option>}{data.columns.map(c => <option key={c} value={c}>{c}</option>)}</select></label>)}</div><p className="hint">Revenue is summed once per row, never multiplied by registrations. Use one currency and decimal-point amounts (1,200.50). All rows, including cancellations and refunds, are included. Customer identifiers are matched exactly after trimming whitespace.</p></section>
+    <section className="card"><h2>Match your columns</h2><div className="mapping">{([['className', 'Class name'], ['customer', 'Customer name or email'], ['revenue', 'Revenue received per row'], ['count', 'Registration counting']] as const).map(([key, label]) => <label key={key}>{label}<select value={mapping[key]} disabled={key === 'className' && !!data.classColumn} onChange={e => setMapping({ ...mapping, [key]: e.target.value })}>{key === 'count' && <option value="">One registration per row</option>}{data.columns.filter(c => key === 'className' || c !== data.classColumn).map(c => <option key={c} value={c}>{c}</option>)}</select></label>)}</div><p className="hint">Revenue is summed once per row, never multiplied by registrations. Use one currency and decimal-point amounts (1,200.50). All rows, including cancellations and refunds, are included. Customer identifiers are matched exactly after trimming whitespace.</p></section>
     {result.error && <p className="alert" role="alert">{result.error}</p>}
     {stats && <>{(stats.invalidRevenue > 0 || stats.missingClass > 0 || stats.missingCustomer > 0) && <p role="status" className="alert">{stats.invalidRevenue} rows have invalid or missing revenue (counted as zero). {stats.missingClass} rows have no class; {stats.missingCustomer} have no customer and are excluded from the respective rankings.</p>}
       <div className="metrics"><div><span>Total registrations</span><strong>{stats.totalRegistrations.toLocaleString()}</strong></div><div><span>Total revenue · sheet currency</span><strong>{stats.totalRevenue.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></div><div><span>Classes in your studio</span><strong>{stats.registrations.length}</strong></div></div>
