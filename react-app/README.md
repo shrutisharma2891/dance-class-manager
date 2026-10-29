@@ -22,8 +22,9 @@ Press Ctrl+C to stop. These commands work in Windows, macOS, and Linux terminals
 
 - Demo data loads automatically.
 - Upload CSV or XLSX (up to 20 MB), or paste a Google Sheets link.
-- For Excel, every worksheet represents a class. The worksheet name becomes the class
-  name, and all worksheets are combined automatically. No class column is required.
+- For Excel, every worksheet represents a class. Use worksheet names like **Salsa - 27.09.26**: the part before the final
+  separator is the class name, and the date determines its revenue month.
+  All worksheets are combined automatically. No class column is required.
   Use Email, Name, and Revenue columns. Extra columns (such as Email Sent or
   Venue Change) may differ between sheets. Header capitalization and surrounding
   spaces are normalized for these fields. The first nonempty row must contain
@@ -79,3 +80,30 @@ Create worksheets named **Salsa**, **Ballet**, and **Hip Hop**. Each sheet uses:
 in Registration counting if present. A customer appearing in multiple class
 sheets is combined in the top-two repeat ranking. Existing Class columns are ignored for
 class grouping in Excel; worksheet names determine the class.
+
+## Monthly earnings
+
+Name sheets `[class name] - [DD.MM.YY]`, for example:
+
+- `Chunari - 27.09.26` → September 2026
+- `Kalyani - 03.10.26` → October 2026
+- `JBJ - 01.11.26` → November 2026
+
+Four-digit years (`27.09.2026`) are also accepted. Two-digit years mean
+2000–2099. Dates are validated as day.month.year (not month.day.year). The final
+separator is used, so class names can contain hyphens.
+
+The dashboard shows monthly revenue totals, a chronological bar chart, and a CSV
+export. Revenue is assigned to the **class date**, not the registration timestamp
+or payment date. All rows in a worksheet belong to that class date. The same class
+on several sheets is combined in class rankings, while monthly revenue is split
+by each session's date. Months from different years remain separate.
+
+Undated sheets and sheets with invalid dates remain in overall/class/customer
+totals but are excluded from monthly earnings, with a notice showing excluded
+revenue and sheet names. Only months represented by dated class rows are shown;
+an absent month means the workbook contains no dated class records for it, not
+proof of zero earnings. Invalid/missing revenue contributes zero with a warning;
+negative refunds reduce monthly totals. Summary/pass tabs without Revenue remain
+excluded. CSV/Google single-tab imports do not supply worksheet dates; upload an
+Excel workbook to use this monthly report.

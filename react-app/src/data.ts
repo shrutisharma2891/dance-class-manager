@@ -1,7 +1,7 @@
 import Papa from 'papaparse';
 export type Row = Record<string, string>;
-export type Dataset = { columns: string[]; rows: Row[]; classColumn?: string; classSheets?: string[]; skippedSheets?: string[] };
-export type Mapping = { className: string; customer: string; revenue: string; count: string; customerName?: string };
+export type Dataset = { columns: string[]; rows: Row[]; classColumn?: string; dateColumn?: string; undatedSheets?: string[]; classSheets?: string[]; skippedSheets?: string[] };
+export type Mapping = { className: string; customer: string; revenue: string; count: string; customerName?: string; classDate?: string };
 export type Ranking = { name: string; value: number; customerName?: string };
 
 export function fromGrid(grid: unknown[][], minimumColumns = 3): Dataset {
@@ -12,6 +12,19 @@ export function fromGrid(grid: unknown[][], minimumColumns = 3): Dataset {
   const rows = populated.slice(1).map(cells => Object.fromEntries(columns.map((c, i) => [c, String(cells[i] ?? '')])));
   if (!rows.length) throw new Error('The spreadsheet has no data rows.');
   return { columns, rows };
+}
+
+/** Worksheet dates use day.month.year. Two-digit years mean 2000–2099. */
+export function parseClassSheetName(sheetName: string) {
+  const name = sheetName.trim();
+  const match = name.match(/^(.*?)\s+-\s+(\d{1,2})\.(\d{1,2})\.(\d{2}|\d{4})$/);
+  if (!match || !match[1].trim()) return { className: name, date: '' };
+  const day = Number(match[2]), month = Number(match[3]);
+  const year = Number(match[4]) + (match[4].length === 2 ? 2000 : 0);
+  const check = new Date(Date.UTC(year, month - 1, day));
+  if (year < 1900 || check.getUTCFullYear() !== year || check.getUTCMonth() !== month - 1 || check.getUTCDate() !== day)
+    return { className: match[1].trim(), date: '' };
+  return { className: match[1].trim(), date: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}` };
 }
 
 export function fromClassSheets(sheets: { name: string; grid: unknown[][] }[]): Dataset {
@@ -41,13 +54,18 @@ export function fromClassSheets(sheets: { name: string; grid: unknown[][] }[]): 
   const headers = [...new Set(parsed.flatMap(sheet => sheet.data.columns))];
   let classColumn = 'Class (worksheet)';
   while (headers.includes(classColumn)) classColumn += ' ·';
+  let dateColumn = 'Class date (worksheet)';
+  while (headers.includes(dateColumn)) dateColumn += ' ·';
   return {
-    columns: [classColumn, ...headers],
+    columns: [classColumn, dateColumn, ...headers],
     rows: parsed.flatMap(sheet => sheet.data.rows.map(row => ({
       ...Object.fromEntries(headers.map(header => [header, row[header] ?? ''])),
-      [classColumn]: sheet.name,
+      [classColumn]: parseClassSheetName(sheet.name).className,
+      [dateColumn]: parseClassSheetName(sheet.name).date,
     }))),
     classColumn,
+    dateColumn,
+    undatedSheets: parsed.filter(sheet => !parseClassSheetName(sheet.name).date).map(sheet => sheet.name),
     classSheets: parsed.map(sheet => sheet.name),
     skippedSheets,
   };
@@ -81,6 +99,8 @@ export function summarize(rows: Row[], mapping: Mapping) {
   let invalidRevenue = 0, missingClass = 0, missingCustomer = 0, totalRegistrations = 0, totalRevenue = 0;
   const add = (map: Map<string, number>, key: string, value: number) => map.set(key, (map.get(key) ?? 0) + value);
   const customerNames = new Map<string, string>();
+  const monthlyRevenue = new Map<string, number>();
+  let undatedRevenue = 0, undatedRows = 0;
   rows.forEach((row, index) => {
     const count = mapping.count ? number(row[mapping.count] ?? '') : 1;
     if (!Number.isSafeInteger(count) || count < 0) throw new Error(`Row ${index + 2}: registrations must be nonnegative whole numbers.`);
@@ -92,11 +112,20 @@ export function summarize(rows: Row[], mapping: Mapping) {
     const customerName = mapping.customerName ? (row[mapping.customerName] ?? '').trim() : '';
     if (customer && customerName && !customerNames.has(customer)) customerNames.set(customer, customerName);
     totalRegistrations += count; totalRevenue += amount;
+    if (mapping.classDate) {
+      const date = row[mapping.classDate] ?? '';
+      if (/^\d{4}-\d{2}-\d{2}$/.test(date)) add(monthlyRevenue, date.slice(0, 7), amount);
+      else { undatedRevenue += amount; undatedRows++; }
+    }
     if (className) { add(registrations, className, count); add(revenue, className, amount); } else missingClass++;
     if (customer) add(customers, customer, count); else missingCustomer++;
   });
   const rank = (map: Map<string, number>): Ranking[] => Array.from(map, ([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
-  return { registrations: rank(registrations), revenue: rank(revenue), customers: rank(customers).filter(customer => customer.value > 1).slice(0, 2).map(customer => ({ ...customer, ...(customerNames.has(customer.name) ? { customerName: customerNames.get(customer.name) } : {}) })), invalidRevenue, missingClass, missingCustomer, totalRegistrations, totalRevenue };
+  const monthly = Array.from(monthlyRevenue).sort(([a], [b]) => a.localeCompare(b)).map(([month, value]) => ({
+    name: new Intl.DateTimeFormat('en', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${month}-01T00:00:00Z`)),
+    value,
+  }));
+  return { monthly, undatedRevenue, undatedRows, registrations: rank(registrations), revenue: rank(revenue), customers: rank(customers).filter(customer => customer.value > 1).slice(0, 2).map(customer => ({ ...customer, ...(customerNames.has(customer.name) ? { customerName: customerNames.get(customer.name) } : {}) })), invalidRevenue, missingClass, missingCustomer, totalRegistrations, totalRevenue };
 }
 export function rankingCsv(rows: Ranking[], metric: string) {
   // Prevent spreadsheet formula execution in exported customer/class names.
@@ -106,7 +135,7 @@ export function rankingCsv(rows: Ranking[], metric: string) {
   return Papa.unparse(safe, { columns: [...(hasCustomerNames ? ['Customer name'] : []), 'Name', metric] });
 }
 export const demo = fromClassSheets([
-  { name: 'Salsa', grid: [['Email', 'Name', 'Revenue'], ['alex@example.com', 'Alex', 25], ['taylor@example.com', 'Taylor', 25], ['sam@example.com', 'Sam', 25]] },
-  { name: 'Ballet', grid: [['Name', 'Email', 'Revenue', 'Email Sent'], ['Sam', 'SAM@example.com', 30, 'Yes'], ['Morgan', 'morgan@example.com', 30, 'No']] },
-  { name: 'Hip Hop', grid: [['Email', 'Name', 'Revenue'], ['ALEX@example.com', 'Alex', 20], ['sam@example.com', 'Sam', 20], ['taylor@example.com', 'Taylor', 20]] },
+  { name: 'Salsa - 27.09.26', grid: [['Email', 'Name', 'Revenue'], ['alex@example.com', 'Alex', 25], ['taylor@example.com', 'Taylor', 25], ['sam@example.com', 'Sam', 25]] },
+  { name: 'Ballet - 03.10.26', grid: [['Name', 'Email', 'Revenue', 'Email Sent'], ['Sam', 'SAM@example.com', 30, 'Yes'], ['Morgan', 'morgan@example.com', 30, 'No']] },
+  { name: 'Hip Hop - 01.11.26', grid: [['Email', 'Name', 'Revenue'], ['ALEX@example.com', 'Alex', 20], ['sam@example.com', 'Sam', 20], ['taylor@example.com', 'Taylor', 20]] },
 ]);

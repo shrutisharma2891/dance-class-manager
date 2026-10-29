@@ -14,6 +14,8 @@ describe('one class per Excel worksheet', () => {
     ]);
     workbook.addWorksheet('Empty');
     workbook.addWorksheet('No bookings yet').addRow(['Customer', 'Revenue', 'Count']);
+    // Formatting outside the data must not create blank header columns.
+    workbook.getWorksheet('Salsa')!.getCell('H1').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } };
     const bytes = await workbook.xlsx.writeBuffer();
     const data = await readClassWorkbook(Uint8Array.from(new Uint8Array(bytes)).buffer);
     const result = summarize(data.rows, { ...defaultMapping(data.columns), className: data.classColumn!, count: 'Count' });
