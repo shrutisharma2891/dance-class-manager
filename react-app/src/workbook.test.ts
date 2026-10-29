@@ -18,7 +18,7 @@ describe('one class per Excel worksheet', () => {
     const data = await readClassWorkbook(Uint8Array.from(new Uint8Array(bytes)).buffer);
     const result = summarize(data.rows, { ...defaultMapping(data.columns), className: data.classColumn!, count: 'Count' });
     expect(data.classSheets).toEqual(['Salsa', 'Ballet']);
-    expect(data.skippedSheets).toEqual(['Empty', 'No bookings yet']);
+    expect(data.skippedSheets).toEqual(['Empty (empty or header-only)', 'No bookings yet (empty or header-only)']);
     expect(result.registrations).toEqual([{ name: 'Ballet', value: 4 }, { name: 'Salsa', value: 3 }]);
     expect(result.revenue).toEqual([{ name: 'Ballet', value: 130 }, { name: 'Salsa', value: 125 }]);
     expect(result.customers).toContainEqual({ name: 'Alex', value: 3 });
@@ -35,11 +35,22 @@ describe('one class per Excel worksheet', () => {
     const result = summarize(data.rows, { ...defaultMapping(data.columns), className: data.classColumn! });
     expect(result.registrations).toEqual([{ name: 'Salsa', value: 1 }]);
   });
-  it('identifies incompatible or malformed sheets instead of silently losing bookings', () => {
-    expect(() => fromClassSheets([
-      { name: 'Salsa', grid: [['Customer', 'Revenue'], ['Alex', 25]] },
-      { name: 'Ballet', grid: [['Name', 'Amount'], ['Sam', 30]] },
-    ])).toThrow('Ballet');
+  it('combines sample-style headers and skips non-class tabs with a notice', () => {
+    const data = fromClassSheets([
+      { name: 'Salsa ', grid: [['Email', 'Name', 'Revenue'], ['Alex@example.com', 'Alex', 25]] },
+      { name: 'Ballet', grid: [['Email', 'Name', 'Revenue', 'Email Sent', 'Venue Change'], ['alex@example.com', 'Alex', 30, 'Yes', 'No']] },
+      { name: 'Hip Hop', grid: [[' email ', 'name', 'revenue', 'Column 2'], ['sam@example.com', 'Sam', 20, 'Yes']] },
+      { name: '5-Class Pass', grid: [['Email', 'Name', 'Classes'], ['alex@example.com', 'Alex', 'Salsa, Ballet']] },
+      { name: 'Sheet1', grid: [] },
+    ]);
+    const result = summarize(data.rows, { ...defaultMapping(data.columns), className: data.classColumn! });
+    expect(data.classSheets).toEqual(['Salsa', 'Ballet', 'Hip Hop']);
+    expect(data.skippedSheets).toContain('5-Class Pass (missing Email/customer or Revenue column)');
+    expect(result.totalRegistrations).toBe(3);
+    expect(result.totalRevenue).toBe(75);
+    expect(result.customers).toEqual([{ name: 'alex@example.com', customerName: 'Alex', value: 2 }]);
+  });
+  it('identifies malformed sheets instead of silently losing bookings', () => {
     expect(() => fromClassSheets([{ name: 'Bad headers', grid: [['Customer', 'Customer'], ['Alex', 25]] }])).toThrow('Bad headers');
     expect(() => fromClassSheets([{ name: 'Empty', grid: [] }])).toThrow('No class sheets');
   });

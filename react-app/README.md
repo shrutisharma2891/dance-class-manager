@@ -24,12 +24,16 @@ Press Ctrl+C to stop. These commands work in Windows, macOS, and Linux terminals
 - Upload CSV or XLSX (up to 20 MB), or paste a Google Sheets link.
 - For Excel, every worksheet represents a class. The worksheet name becomes the class
   name, and all worksheets are combined automatically. No class column is required.
-  Use identical headers across sheets (column order may differ). The first nonempty
-  row must contain unique headers. Blank/header-only sheets are skipped with a notice.
-  Keep summaries or unrelated data in a separate workbook.
-- Select customer (preferably email), revenue, and optionally registration count columns.
+  Use Email, Name, and Revenue columns. Extra columns (such as Email Sent or
+  Venue Change) may differ between sheets. Header capitalization and surrounding
+  spaces are normalized for these fields. The first nonempty row must contain
+  unique headers. Empty/header-only sheets and tabs without Email/customer or
+  Revenue are skipped with a notice. Pass/summary tabs without Revenue are not
+  added to class totals; no revenue is guessed or allocated to classes.
+- Email, Name, and Revenue are selected automatically when present. You can
+  select the customer email, display name, revenue, and optional registration count columns.
   For CSV or a single Google Sheets tab, also select the class column.
-- Explore class registration/revenue charts and the top 10 customers. Each chart
+- Explore class registration/revenue charts and the top 2 repeat customers. Each chart
   includes a ranking table and CSV export. The source preview shows the first 20 rows.
 
 Google Sheets must be publicly viewable via “Anyone with the link can view”. The
@@ -46,7 +50,9 @@ multiplied by counts. Use a single currency with decimal-point amounts such as
 1,200.50. Currency symbols $, £, €, and ₹ are accepted; refunds may be negative.
 Missing/invalid revenue is zero with a warning. Blank class/customer identifiers
 are excluded from the corresponding rankings, but included in overall totals.
-Names are matched exactly after trimming whitespace; ties sort alphabetically.
+Customers are grouped by trimmed, lowercase email, not display name. Only customers
+with more than one booking appear, with at most two shown. Ties sort alphabetically
+by email; the first available name is shown in the ranking table and CSV download.
 All rows are included, so remove cancellations before import if appropriate.
 Excel formulas require saved results; this app does not calculate formulas.
 
@@ -64,12 +70,12 @@ The production build is generated in `dist/` and can be hosted as a static site.
 
 Create worksheets named **Salsa**, **Ballet**, and **Hip Hop**. Each sheet uses:
 
-| Customer | Revenue | Count |
-| --- | ---: | ---: |
-| alex@example.com | 50 | 2 |
-| sam@example.com | 25 | 1 |
+| Email | Name | Revenue | Count |
+| --- | --- | ---: | ---: |
+| alex@example.com | Alex | 50 | 2 |
+| sam@example.com | Sam | 25 | 1 |
 
 `Count` is optional; without it, each row counts as one registration. Select it
 in Registration counting if present. A customer appearing in multiple class
-sheets is combined in the top-10 ranking. Existing Class columns are ignored for
+sheets is combined in the top-two repeat ranking. Existing Class columns are ignored for
 class grouping in Excel; worksheet names determine the class.

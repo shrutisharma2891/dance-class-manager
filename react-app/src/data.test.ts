@@ -23,12 +23,25 @@ describe('spreadsheet insights', () => {
     expect(() => summarize(data.rows, { ...mapping, count: 'Count' })).toThrow('whole numbers');
     expect(() => summarize(data.rows, { ...mapping, customer: mapping.className })).toThrow('different column');
   });
-  it('limits customer rankings to ten and orders ties by name', () => {
-    const data = fromGrid([['Class', 'Customer', 'Revenue'], ...Array.from({ length: 12 }, (_, i) => ['Salsa', `Customer ${String(i).padStart(2, '0')}`, 5])]);
+  it('shows only the top two repeat customers, grouped by normalized email', () => {
+    const data = fromGrid([
+      ['Class', 'Email', 'Name', 'Revenue'],
+      ['Salsa', ' Alex@example.com ', 'Alex', 20],
+      ['Ballet', 'ALEX@EXAMPLE.COM', 'Alexander', 30],
+      ['Salsa', 'sam@example.com', 'Sam', 20],
+      ['Ballet', 'sam@example.com', 'Sam', 30],
+      ['Hip Hop', 'sam@example.com', 'Sam', 10],
+      ['Salsa', 'taylor@example.com', 'Taylor', 20],
+      ['Ballet', 'taylor@example.com', 'Taylor', 30],
+      ['Salsa', 'once@example.com', 'Once', 20],
+    ]);
     const result = summarize(data.rows, defaultMapping(data.columns));
-    expect(result.customers).toHaveLength(10);
-    expect(result.customers[0].name).toBe('Customer 00');
-    expect(result.customers[9].name).toBe('Customer 09');
+    expect(result.customers).toEqual([
+      { name: 'sam@example.com', customerName: 'Sam', value: 3 },
+      { name: 'alex@example.com', customerName: 'Alex', value: 2 },
+    ]);
+    const single = fromGrid([['Class', 'Email', 'Revenue'], ['Salsa', 'one@example.com', 20]]);
+    expect(summarize(single.rows, defaultMapping(single.columns)).customers).toEqual([]);
   });
   it('validates sheet links and preserves the tab selection', () => {
     expect(googleUrl('https://docs.google.com/spreadsheets/d/abc123/edit#gid=42')).toContain('gid=42');
